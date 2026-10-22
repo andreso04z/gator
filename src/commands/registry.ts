@@ -1,3 +1,4 @@
+import { User } from "src/lib/db/schema";
 import { CommandHandler } from "./handlers"
 
 export type CommandsRegistry = Record<string, CommandHandler>;
@@ -14,3 +15,9 @@ export async function runCommand(registry: CommandsRegistry, cmdName: string, ..
   }
   await command(cmdName, ...args);
 }
+
+export type UserCommandHandler = (
+  cmdName: string,
+  user: User,
+  ...args: string[]
+) => Promise<void> | void;

@@ -1,9 +1,9 @@
-import { ne } from "drizzle-orm";
 import { readConfig, setUser } from "src/config";
 import { createFeedFollow, getFeedFollowsForUser } from "src/lib/db/queries/feed_follows";
 import { createFeed, getAllFeeds, getFeedByUrl } from "src/lib/db/queries/feeds";
 import { createUser, getUserById, getUserByName, getUsers, resetUsers } from "src/lib/db/queries/users";
 import { fetchFeed, printFeed } from "src/lib/rss/feed";
+import { User } from "src/lib/db/schema";
 
 export type CommandHandler = (cmdName: string, ...args: string[]) => Promise<void>;
 
@@ -85,22 +85,17 @@ export async function handlerAgg(cmdName: string, ...args: string[]) {
   console.log(parsed);
 }
 
-export async function handlerCreateFeed(cmdName: string, ...args: string[]) {
+export async function handlerAddFeed(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+) {
   if (!args[0] || !args[1]) {
     throw new Error("Name and URL must be passed as parameters");
   }
 
   const name = args[0];
   const url = args[1];
-  const currentUser = readConfig().currentUserName;
-
-  let user;
-
-  try {
-    user = await getUserByName(currentUser);
-  } catch (err: unknown) {
-    throw new Error("Failed to get user");
-  }
 
   let feed;
 
@@ -146,9 +141,12 @@ export async function handlerShowFeeds(cmdName: string, ...args: string[]) {
   };
 }
 
-export async function handlerFollow(cmdName: string, ...args: string[]) {
+export async function handlerFollow(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+) {
   const url = args[0];
-  const currentUserName = readConfig().currentUserName;
 
   let feed;
 
@@ -156,14 +154,6 @@ export async function handlerFollow(cmdName: string, ...args: string[]) {
     feed = await getFeedByUrl(url);
   } catch (err: unknown) {
     throw new Error("Failed to get feed by its url");
-  }
-
-  let user;
-
-  try {
-    user = await getUserByName(currentUserName);
-  } catch (err: unknown) {
-    throw new Error("Failed to get user by its user name");
   }
 
   let feedUserFollow;
@@ -178,17 +168,11 @@ export async function handlerFollow(cmdName: string, ...args: string[]) {
   console.log(`User name: ${feedUserFollow.userName}`);
 }
 
-export async function handlerFollowing(cmdName: string, ...args: string[]) {
-  const currentUserName = readConfig().currentUserName;
-
-  let user;
-
-  try {
-    user = await getUserByName(currentUserName);
-  } catch (err: unknown) {
-    throw new Error("Failed to get user");
-  }
-
+export async function handlerFollowing(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+) {
   let followedFeeds;
 
   try {
