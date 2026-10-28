@@ -1,11 +1,19 @@
 import { readConfig, setUser } from "src/config";
-import { createFeedFollow, getFeedFollowsForUser } from "src/lib/db/queries/feed_follows";
+import { createFeedFollow, deleteFeedFollow, getFeedFollowsForUser } from "src/lib/db/queries/feed_follows";
 import { createFeed, getAllFeeds, getFeedByUrl } from "src/lib/db/queries/feeds";
 import { createUser, getUserById, getUserByName, getUsers, resetUsers } from "src/lib/db/queries/users";
-import { fetchFeed, printFeed } from "src/lib/rss/feed";
+import { printFeed, scrapeFeeds } from "src/lib/rss/feed";
 import { User } from "src/lib/db/schema";
 
 export type CommandHandler = (cmdName: string, ...args: string[]) => Promise<void>;
+
+async function rethrow<T>(promise: Promise<T>, message: string): Promise<T> {
+  try {
+    return await promise;
+  } catch {
+    throw new Error(message);
+  }
+}
 
 export async function handlerLogin(cmdName: string, ...args: string[]) {
   if (!args[0]) {
@@ -45,22 +53,12 @@ export async function handlerRegister(cmdName: string, ...args: string[]) {
 }
 
 export async function handlerReset(cmdName: string, ...args: string[]) {
-  let reset
-  try {
-    reset = await resetUsers();
-  } catch (err: unknown) {
-    throw new Error("Failed to reset users table");
-  }
+  const reset = await rethrow(resetUsers(), "Failed to reset users table");
   console.log(`Deleted ${reset.length} users from table`);
 }
 
 export async function handlerUsers(cmdName: string, ...args: string[]) {
-  let users
-  try {
-    users = await getUsers();
-  } catch (err: unknown) {
-    throw new Error("Failed to get users");
-  }
+  const users = await rethrow(getUsers(), "Failed to get users");
 
   const config = readConfig();
   const currentUser = config.currentUserName;
@@ -74,15 +72,55 @@ export async function handlerUsers(cmdName: string, ...args: string[]) {
   })
 }
 
-export async function handlerAgg(cmdName: string, ...args: string[]) {
-  let feed;
-  try {
-    feed = await fetchFeed("https://www.wagslane.dev/index.xml");
-  } catch (err: unknown) {
-    throw new Error("Failed to get rss feed");
+function parseDuration(durationStr: string): number {
+  const regex = /^(\d+)(ms|s|m|h)$/;
+  const match = durationStr.match(regex);
+
+  if (!match) {
+    throw new Error("Invalid duration string");
   }
-  const parsed = JSON.stringify(feed);
-  console.log(parsed);
+
+  const value = match[1];
+  const unit = match[2];
+  const valueNum = parseInt(value);
+
+  switch (unit) {
+    case "ms": return valueNum;
+    case "s": return valueNum * 1000;
+    case "m": return valueNum * 1000 * 60;
+    case "h": return valueNum * 1000 * 60 * 60;
+    default: throw new Error("Invalid duration string");
+  }
+}
+
+export async function handlerAgg(cmdName: string, ...args: string[]) {
+  if (!args[0]) {
+    throw new Error("Time between requests must be passed as a parameter");
+  }
+
+  const timeBetweenReqs = args[0];
+  const parsedTimeBetweenReqs = parseDuration(timeBetweenReqs);
+
+  console.log(`Collecting feeds every ${timeBetweenReqs}`);
+
+  const handleError = (err: unknown) => {
+    const message = err instanceof Error ? err.message : "Failed to scrape feeds";
+    console.error(message);
+  };
+
+  scrapeFeeds().catch(handleError);
+
+  const interval = setInterval(() => {
+    scrapeFeeds().catch(handleError);
+  }, parsedTimeBetweenReqs);
+
+  await new Promise<void>((resolve) => {
+    process.on("SIGINT", () => {
+      console.log("Shutting down feed aggregator...");
+      clearInterval(interval);
+      resolve();
+    });
+  });
 }
 
 export async function handlerAddFeed(
@@ -97,46 +135,21 @@ export async function handlerAddFeed(
   const name = args[0];
   const url = args[1];
 
-  let feed;
-
-  try {
-    feed = await createFeed(name, url, user.id);
-  } catch (err: unknown) {
-    throw new Error("Failed to insert feed to database");
-  }
+  const feed = await rethrow(createFeed(name, url, user.id), "Failed to insert feed to database");
 
   console.log(`Feed: ${name} was inserted succesfully`);
 
-  let feedUserFollow;
-
-  try {
-    feedUserFollow = await createFeedFollow(user.id, feed.id);
-  } catch (err: unknown) {
-    throw new Error("Failed to automatically follow feed");
-  }
+  const feedUserFollow = await rethrow(createFeedFollow(user.id, feed.id), "Failed to automatically follow feed");
 
   console.log(feedUserFollow.feedName);
   console.log(feedUserFollow.userName);
 }
 
 export async function handlerShowFeeds(cmdName: string, ...args: string[]) {
-  let feeds;
-
-  try {
-    feeds = await getAllFeeds();
-  } catch (err: unknown) {
-    throw new Error("Failed to get all feeds");
-  }
+  const feeds = await rethrow(getAllFeeds(), "Failed to get all feeds");
 
   for (const feed of feeds) {
-    let user;
-
-    try {
-      user = await getUserById(feed.userId);
-    } catch (err: unknown) {
-      throw new Error("Failed to get user");
-    }
-
+    const user = await rethrow(getUserById(feed.userId), "Failed to get user");
     printFeed(feed, user);
   };
 }
@@ -148,21 +161,8 @@ export async function handlerFollow(
 ) {
   const url = args[0];
 
-  let feed;
-
-  try {
-    feed = await getFeedByUrl(url);
-  } catch (err: unknown) {
-    throw new Error("Failed to get feed by its url");
-  }
-
-  let feedUserFollow;
-
-  try {
-    feedUserFollow = await createFeedFollow(user.id, feed.id);
-  } catch (err: unknown) {
-    throw new Error("Failed to create feed follow");
-  }
+  const feed = await rethrow(getFeedByUrl(url), "Failed to get feed by its url");
+  const feedUserFollow = await rethrow(createFeedFollow(user.id, feed.id), "Failed to create feed follow");
 
   console.log(`Feed name: ${feedUserFollow.feedName}`);
   console.log(`User name: ${feedUserFollow.userName}`);
@@ -173,13 +173,24 @@ export async function handlerFollowing(
   user: User,
   ...args: string[]
 ) {
-  let followedFeeds;
-
-  try {
-    followedFeeds = await getFeedFollowsForUser(user.id);
-  } catch (err: unknown) {
-    throw new Error("Failed to get the user's followed feeds");
-  }
+  const followedFeeds = await rethrow(getFeedFollowsForUser(user.id), "Failed to get the user's followed feeds");
 
   followedFeeds.forEach(feed => console.log(feed.feedName));
+}
+
+export async function handlerUnfollow(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+) {
+  if (!args[0]) {
+    throw new Error("Feed url must be passed as parameter");
+  }
+
+  const url = args[0];
+
+  const feed = await rethrow(getFeedByUrl(url), "Failed to get feed by url");
+  await rethrow(deleteFeedFollow(user.id, feed.id), "Failed to delete follow relationship");
+
+  console.log(`Unfollowed feed: ${feed.name}`);
 }

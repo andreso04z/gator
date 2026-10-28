@@ -1,5 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import { Feed, User } from "../db/schema";
+import { getNextFeedToFetch, markFeedFetched } from "../db/queries/feeds";
 
 export type RSSFeed = {
   channel: {
@@ -84,4 +85,37 @@ export function printFeed(feed: Feed, user: User) {
   console.log(`* Name: ${feed.name}`);
   console.log(`* URL:  ${feed.url}`);
   console.log(`* User: ${user.name}`);
+}
+
+export async function scrapeFeeds() {
+  let nextFeed;
+
+  try {
+    nextFeed = await getNextFeedToFetch();
+  } catch (err: unknown) {
+    throw new Error("Failed to fetch next feed");
+  }
+
+  if (!nextFeed) {
+    console.log("No feeds pending to fetch");
+    return;
+  }
+
+  let feedData;
+
+  try {
+    feedData = await fetchFeed(nextFeed.url);
+  } catch (err: unknown) {
+    throw new Error("Failed to fetch feed");
+  }
+
+  try {
+    await markFeedFetched(nextFeed.id);
+  } catch (err: unknown) {
+    throw new Error("Failed to fetch feed");
+  }
+
+  feedData.channel.item.forEach((item) => {
+    console.log(item.title);
+  });
 }

@@ -1,9 +1,16 @@
 import { pgTable, timestamp, uuid, text, unique } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom().notNull(),
-  name: text("name").notNull().unique(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  id: uuid("id")
+    .primaryKey()
+    .defaultRandom()
+    .notNull(),
+  name: text("name")
+    .notNull()
+    .unique(),
+  createdAt: timestamp("created_at")
+    .notNull()
+    .defaultNow(),
   updatedAt: timestamp("updated_at")
     .notNull()
     .defaultNow()
@@ -18,18 +25,29 @@ export const feeds = pgTable("feeds", {
   name: text("name").notNull(),
   url: text("url").notNull().unique(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at")
+    .notNull()
+    .defaultNow(),
   updatedAt: timestamp("updated_at")
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date()),
+  lastFetchedAt: timestamp("last_fetched_at"),
 });
 
 export const feedFollows = pgTable("feed_follows", {
-  id: uuid("id").primaryKey().defaultRandom().notNull(),
-  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  feedId: uuid("feed_id").notNull().references(() => feeds.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  id: uuid("id")
+    .primaryKey()
+    .defaultRandom()
+    .notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  feedId: uuid("feed_id")
+    .notNull().references(() => feeds.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at")
+    .notNull()
+    .defaultNow(),
   updatedAt: timestamp("updated_at")
     .notNull()
     .defaultNow()
