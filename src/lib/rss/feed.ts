@@ -1,6 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
-import { Feed, User } from "../db/schema";
+import { Feed, InsertPost, User } from "../db/schema";
 import { getNextFeedToFetch, markFeedFetched } from "../db/queries/feeds";
+import { createPost } from "../db/queries/posts";
 
 export type RSSFeed = {
   channel: {
@@ -14,8 +15,8 @@ export type RSSFeed = {
 export type RSSItem = {
   title: string;
   link: string;
-  description: string;
-  pubDate: string;
+  description?: string;
+  pubDate?: string;
 };
 
 export async function fetchFeed(feedURL: string) {
@@ -57,7 +58,7 @@ export async function fetchFeed(feedURL: string) {
   const rssItems: RSSItem[] = [];
 
   for (const item of items) {
-    if (!item.title || !item.link || !item.description || !item.pubDate) {
+    if (!item.title || !item.link) {
       continue;
     }
 
@@ -79,6 +80,19 @@ export async function fetchFeed(feedURL: string) {
   };
 
   return rss;
+}
+
+function parsePublishedAt(pubDate: string | undefined): Date | undefined {
+  if (!pubDate) {
+    return undefined;
+  }
+
+  const publishedAt = new Date(pubDate);
+  if (Number.isNaN(publishedAt.getTime())) {
+    return undefined;
+  }
+
+  return publishedAt;
 }
 
 export function printFeed(feed: Feed, user: User) {
@@ -115,7 +129,22 @@ export async function scrapeFeeds() {
     throw new Error("Failed to fetch feed");
   }
 
-  feedData.channel.item.forEach((item) => {
-    console.log(item.title);
-  });
+  let savedCount = 0;
+
+  for (const item of feedData.channel.item) {
+    const post: InsertPost = {
+      title: item.title,
+      url: item.link,
+      description: item.description || undefined,
+      publishedAt: parsePublishedAt(item.pubDate),
+      feedId: nextFeed.id,
+    };
+
+    const saved = await createPost(post);
+    if (saved) {
+      savedCount += 1;
+    }
+  }
+
+  console.log(`Saved ${savedCount} posts from ${nextFeed.name}`);
 }
